@@ -1,3 +1,4 @@
+use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 
 use database::Database;
@@ -26,6 +27,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         App::new()
             .app_data(web::Data::new(database.clone()))
             .service(register)
+            .wrap(Logger::default())
     })
     .bind(("127.0.0.1", PORT))?
     .workers(4)
