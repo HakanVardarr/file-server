@@ -1,5 +1,11 @@
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    dev::Service, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
+};
+use diesel::r2d2::{ConnectionManager, Pool};
+use diesel::SqliteConnection;
 use std::io::{BufReader, Read, Write};
+
+const PORT: u16 = 8080;
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -64,16 +70,35 @@ async fn post_file(file_name: web::Path<String>, body: web::Bytes) -> impl Respo
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
+    dotenv::dotenv().ok();
+    env_logger::init();
+
+    let database_url = std::env::var("DATABASE_URL").expect("DATABSE_URL NOT FOUND");
+    let database_pool = Pool::builder()
+        .build(ConnectionManager::<SqliteConnection>::new(database_url))
+        .unwrap();
+
+    HttpServer::new(move || {
         App::new()
+            .wrap_fn(|req, srv| {
+                let method = req.method();
+                let path = req.path();
+
+                log::info!("{method} {path}");
+
+                srv.call(req)
+            })
+            .app_data(web::Data::new(database_pool.clone()))
             .service(index)
             .service(echo)
             .service(user_agent)
             .service(get_file)
             .service(post_file)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", PORT))?
     .workers(4)
     .run()
-    .await
+    .await?;
+
+    Ok(())
 }
