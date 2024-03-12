@@ -18,6 +18,7 @@ enum UserError {
 fn hash_user(new_user: &NewUser) -> Result<NewUser, UserError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
+
     let password_hash = argon2
         .hash_password(&new_user.password.as_bytes(), &salt)
         .map_err(|_| UserError::HashError)?
