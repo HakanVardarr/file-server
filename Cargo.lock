@@ -579,6 +579,7 @@ dependencies = [
  "dotenv",
  "env_logger",
  "log",
+ "rand",
  "serde",
  "serde_json",
  "thiserror",

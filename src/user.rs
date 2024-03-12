@@ -43,9 +43,10 @@ async fn register(database: web::Data<Database>, new_user: web::Json<NewUser>) -
 
     if user.is_ok() {
         return match user.unwrap() {
-            Ok(user) => HttpResponse::Created().json(UserWithoutPassword {
+            Ok((user, key)) => HttpResponse::Created().json(UserWithoutPassword {
                 username: user.username,
                 email: user.email,
+                api_key: key,
             }),
             Err(e) => match e {
                 DatabaseError::UserameExists => HttpResponse::Conflict()
