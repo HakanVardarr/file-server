@@ -1,71 +1,52 @@
-use actix_web::{
-    dev::Service, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
-};
+use actix_web::{dev::Service, get, web, App, HttpResponse, HttpServer, Responder};
+use diesel::query_dsl::methods::FilterDsl;
 use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::SqliteConnection;
-use std::io::{BufReader, Read, Write};
+use diesel::{ExpressionMethods, RunQueryDsl, SqliteConnection};
+use file_server::models::{NewUser, User};
+
+use file_server::schema::users::dsl::users;
+use file_server::schema::users::name;
 
 const PORT: u16 = 8080;
+type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 #[get("/")]
 async fn index() -> impl Responder {
-    HttpResponse::Ok()
+    HttpResponse::Ok().finish()
 }
 
-#[get("/echo/{path:.*}")]
-async fn echo(path: web::Path<String>) -> impl Responder {
-    HttpResponse::Ok()
-        .insert_header(("Content-Type", "text/plain"))
-        .body(path.into_inner())
-}
+#[get("/user/{name}")]
+async fn create_new_user(pool: web::Data<DbPool>, user_name: web::Path<String>) -> impl Responder {
+    let user_name = user_name.into_inner();
 
-#[get("/user-agent")]
-async fn user_agent(req: HttpRequest) -> impl Responder {
-    if let Some(user_agent) = req.headers().get("user-agent") {
-        HttpResponse::Ok()
-            .content_type("text/plain")
-            .body(format!("User-Agent: {}", user_agent.to_str().unwrap()))
+    let user: Result<Result<User, &str>, actix_web::error::BlockingError> = web::block(move || {
+        let mut conn = pool.get().expect("couldn't get db connection from pool");
+        let new_user = NewUser { name: user_name };
+
+        match diesel::insert_into(users)
+            .values(&new_user)
+            .execute(&mut conn)
+        {
+            Ok(_) => {
+                return Ok(users
+                    .filter(name.eq(&new_user.name))
+                    .first::<User>(&mut conn)
+                    .expect("Error retrieving inserted user"))
+            }
+            Err(_) => return Err("User Already Exists"),
+        }
+    })
+    .await;
+
+    if let Ok(user_result) = user {
+        if let Ok(user) = user_result {
+            HttpResponse::Ok().json(user)
+        } else {
+            HttpResponse::BadRequest().finish()
+        }
     } else {
-        HttpResponse::NotFound().finish()
+        HttpResponse::InternalServerError().body("Something went wrong on server")
     }
-}
-
-#[get("/files/{file_name}")]
-async fn get_file(file_name: web::Path<String>) -> impl Responder {
-    let file_name = file_name.into_inner();
-
-    if let Ok(file) = std::fs::File::open(&file_name) {
-        let mut reader = BufReader::new(file);
-        let mut buffer = String::new();
-        if !reader.read_to_string(&mut buffer).is_err() {
-            return HttpResponse::Ok()
-                .content_type("application/octet-stream")
-                .body(buffer);
-        }
-    }
-
-    HttpResponse::NotFound()
-        .content_type("text/plain")
-        .body(format!(
-            "Cannot locate file called: {file_name}\nIn directory: ."
-        ))
-}
-
-#[post("/files/{file_name}")]
-async fn post_file(file_name: web::Path<String>, body: web::Bytes) -> impl Responder {
-    let file_name = file_name.into_inner();
-
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(file_name)
-    {
-        if !file.write_all(&body).is_err() {
-            return HttpResponse::Created().finish();
-        }
-    }
-    return HttpResponse::InternalServerError().finish();
 }
 
 #[actix_web::main]
@@ -90,10 +71,7 @@ async fn main() -> std::io::Result<()> {
             })
             .app_data(web::Data::new(database_pool.clone()))
             .service(index)
-            .service(echo)
-            .service(user_agent)
-            .service(get_file)
-            .service(post_file)
+            .service(create_new_user)
     })
     .bind(("127.0.0.1", PORT))?
     .workers(4)
