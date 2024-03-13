@@ -5,7 +5,7 @@ use database::Database;
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::SqliteConnection;
 
-use user::register;
+use user::{forgot, register};
 
 use std::error::Error;
 
@@ -27,9 +27,10 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         App::new()
             .app_data(web::Data::new(database.clone()))
             .service(register)
+            .service(forgot)
             .wrap(Logger::default())
     })
-    .bind(("127.0.0.1", PORT))?
+    .bind(("0.0.0.0", PORT))?
     .workers(4)
     .run()
     .await?;

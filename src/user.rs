@@ -1,3 +1,5 @@
+use crate::models::{ApiKey, UserLogin};
+
 use super::{
     database::{Database, DatabaseError},
     models::{NewUser, UserWithoutPassword},
@@ -56,6 +58,22 @@ async fn register(database: web::Data<Database>, new_user: web::Json<NewUser>) -
                 }
                 _ => HttpResponse::InternalServerError().body(e.to_string()),
             },
+        };
+    }
+
+    HttpResponse::InternalServerError().finish()
+}
+
+#[post("/user/forgot")]
+async fn forgot(database: web::Data<Database>, user: web::Json<UserLogin>) -> impl Responder {
+    let login_status = web::block(move || database.find_user_check_password(user.0)).await;
+    if login_status.is_ok() {
+        return match login_status.unwrap() {
+            Ok(new_api_key) => HttpResponse::Ok().json(ApiKey {
+                api_key: new_api_key,
+            }),
+            Err(DatabaseError::Unauthorized) => HttpResponse::Unauthorized().finish(),
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
         };
     }
 

@@ -1,6 +1,6 @@
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
+    Argon2, PasswordHash, PasswordVerifier,
 };
 
 use diesel::query_dsl::methods::FilterDsl;
@@ -12,10 +12,13 @@ use std::env;
 
 use thiserror::Error;
 
-use crate::models::{NewUser, NewUserWithApiKey, User};
 use crate::schema::users::dsl::users;
 use crate::schema::users::{api_key, username};
 use crate::DatabasePool;
+use crate::{
+    models::{NewUser, NewUserWithApiKey, User, UserLogin},
+    schema::users::email,
+};
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
@@ -31,6 +34,10 @@ pub enum DatabaseError {
     EmailExists,
     #[error("Unable to hash api key.")]
     HashError,
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Cannot update the api key.")]
+    UpdateError,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +91,44 @@ impl Database {
             .unwrap();
 
         Ok((user, key))
+    }
+
+    pub fn find_user_check_password(&self, login_user: UserLogin) -> Result<String, DatabaseError> {
+        let mut connection = self
+            .pool
+            .get()
+            .map_err(|_| DatabaseError::ConnectionTimeout)?;
+
+        let user = users
+            .filter(email.eq(&login_user.email))
+            .first::<User>(&mut connection);
+
+        if user.is_err() {
+            return Err(DatabaseError::Unauthorized);
+        } else {
+            let user: User = user.unwrap();
+            let password_hash = user.pasword;
+
+            let parsed_hash =
+                PasswordHash::new(&password_hash).map_err(|_| DatabaseError::HashError)?;
+
+            let new_api_key = generate_api_key(&mut connection);
+            let hashed_api_key = hash_api_key(&new_api_key)?;
+
+            if Argon2::default()
+                .verify_password(login_user.password.as_bytes(), &parsed_hash)
+                .is_ok()
+            {
+                diesel::update(users.filter(email.eq(&login_user.email)))
+                    .set(api_key.eq(&hashed_api_key))
+                    .execute(&mut connection)
+                    .map_err(|_| DatabaseError::UpdateError)?;
+
+                return Ok(new_api_key);
+            } else {
+                return Err(DatabaseError::Unauthorized);
+            }
+        }
     }
 }
 

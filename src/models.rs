@@ -2,6 +2,11 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UserWithoutPassword {
     pub username: String,
     pub email: String,
@@ -25,7 +30,14 @@ pub struct NewUserWithApiKey {
     pub api_key: String,
 }
 
-#[derive(Queryable, Debug, Serialize, Deserialize)]
+#[derive(Insertable, Debug, Serialize, Deserialize, Clone)]
+#[diesel(table_name = crate::schema::users)]
+pub struct UserLogin {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Queryable, Debug, Serialize, Deserialize, Identifiable)]
 #[diesel(table_name = crate::schema::users)]
 pub struct User {
     pub id: i32,

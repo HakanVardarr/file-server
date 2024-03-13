@@ -1,0 +1,12 @@
+services:
+  server:
+    build:
+      context: .
+      target: final
+    ports:
+      - 8080:8080
+    volumes:
+      - ./database.db:/data/database.db
+    environment:
+      - DATABASE_URL=/data/database.db
+      - RUST_LOG=debug
